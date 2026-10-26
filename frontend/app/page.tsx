@@ -96,6 +96,7 @@ const ui = {
   "page-heading": "relative isolate mb-6 flex min-h-[170px] items-center justify-between gap-6 overflow-hidden rounded-2xl bg-gradient-to-br from-[#123b30] via-[#1c5943] to-[#287354] px-7 py-6 text-white shadow-[0_14px_36px_-24px_rgba(23,74,58,0.75)] max-md:min-h-[150px] max-md:px-5 max-md:py-5 max-[500px]:gap-2 max-[500px]:px-4",
   "hero-glow": "pointer-events-none absolute -right-8 -top-24 -z-10 h-64 w-64 rounded-full bg-[#a9d591]/15 blur-3xl",
   "hero-grid": "pointer-events-none absolute inset-0 -z-10 opacity-[0.11] [background-image:linear-gradient(rgba(255,255,255,.5)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.5)_1px,transparent_1px)] [background-size:32px_32px] [mask-image:linear-gradient(90deg,transparent,black)]",
+  spotlight: "pointer-events-none absolute left-1/2 top-0 z-0 h-[145%] w-[120%] -translate-x-1/2 rounded-full opacity-0 blur-[80px] animate-spotlight motion-reduce:animate-none motion-reduce:opacity-20",
   "hero-copy": "relative z-10",
   eyebrow: "mb-2.5 text-[9px] font-bold tracking-[0.13em] text-[#b6dfbd]",
   "hero-title": "mb-2 text-[30px] font-semibold leading-[1.13] tracking-[-1.25px] max-[500px]:text-[23px]",
@@ -310,6 +311,18 @@ function Icon({
         </svg>
       );
   }
+}
+
+function Spotlight({ fill = "#b7f4c8" }: { fill?: string }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={ui.spotlight}
+      style={{
+        background: `radial-gradient(ellipse at center, ${fill} 0%, transparent 68%)`,
+      }}
+    />
+  );
 }
 
 function ForecastChart({ intervals }: { intervals: Interval[] }) {
@@ -576,6 +589,7 @@ export default function Home() {
 
         <div className={ui.content} id="overview">
           <div className={ui["page-heading"]}>
+            <Spotlight />
             <div className={ui["hero-glow"]} />
             <div className={ui["hero-grid"]} />
             <div className={ui["hero-copy"]}>
