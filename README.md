@@ -176,7 +176,7 @@ frontend.
 Create a Render Blueprint from this repository and use `render.yaml`. The
 blueprint configures the backend root directory, Python build command, Uvicorn
 start command, `/health` health check, and CORS for `https://ksjdhfa.vercel.app`.
-After deployment, verify that `<render-service-url>/health` returns a healthy
+After deployment, verify that `https://ksjdhfa.onrender.com/health` returns a healthy
 status and put the actual Render service URL above and in Vercel's
 `NEXT_PUBLIC_API_URL`.
 
