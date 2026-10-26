@@ -894,7 +894,7 @@ export default function Home() {
                   <h3 className={ui["source-title-small"]}>Wind actuals</h3>
                   <p className={ui["source-description"]}>National generation from Elexon BMRS FUELHH, filtered to WIND.</p>
                   <a className={ui["source-link"]} href="https://bmrs.elexon.co.uk/api-documentation/endpoint/datasets/FUELHH/stream" target="_blank" rel="noreferrer">
-                    FUELHH dataset <span>↗</span>
+                    FUELHH dataset <span>-&gt;</span>
                   </a>
                 </div>
               </article>
@@ -904,7 +904,7 @@ export default function Home() {
                   <h3 className={ui["source-title-small"]}>Forecast vintages</h3>
                   <p className={ui["source-description"]}>WINDFOR records published by the selected cutoff on the previous day.</p>
                   <a className={ui["source-link"]} href="https://bmrs.elexon.co.uk/api-documentation/endpoint/datasets/WINDFOR/stream" target="_blank" rel="noreferrer">
-                    WINDFOR dataset <span>↗</span>
+                    WINDFOR dataset <span>-&gt;</span>
                   </a>
                 </div>
               </article>
