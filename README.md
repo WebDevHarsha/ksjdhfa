@@ -8,8 +8,9 @@ generation and quantifies the error over matched intervals.
 
 - `frontend/` — Next.js App Router dashboard, interactive delivery-day and
   cutoff selectors, forecast chart, accuracy table, and CSV export.
-- `frontend/app/page.tsx` — Dashboard UI and client-side API integration.
-- `frontend/app/globals.css` — Responsive application styles.
+- `frontend/app/page.tsx` — Dashboard UI, Tailwind utility styling, and
+  client-side API integration.
+- `frontend/app/globals.css` — Tailwind CSS entry point.
 - `backend/app/main.py` — FastAPI endpoints, Elexon retrieval, forecast-vintage
   selection, interval alignment, and accuracy calculations.
 - `backend/tests/test_analysis.py` — Focused tests for forecast vintage
