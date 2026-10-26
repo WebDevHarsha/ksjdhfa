@@ -1,32 +1,110 @@
 # Meridian Wind Desk
 
-A UK wind-generation forecast review desk for January 2026. It puts the forecast
-vintage available at a chosen day-ahead decision cutoff beside actual wind
-generation and quantifies the error over matched intervals.
+Meridian is a day-ahead wind-generation forecast review dashboard for a UK
+electricity trading desk. It is built for the January 2026 scope in the REint
+Full Stack SWE challenge.
+
+## Challenge deliverables
+
+- **Deployed frontend:** [https://ksjdhfa.vercel.app](https://ksjdhfa.vercel.app)
+- **Backend API:** deploy the Render service from `render.yaml`, then add its
+  public URL here.
+- **Demo video:** add the unlisted YouTube link here before submission. The
+  challenge asks for a video of no more than 10 minutes, with a customer-facing
+  product overview and a technical handover.
+- **Source repository:** [WebDevHarsha/ksjdhfa](https://github.com/WebDevHarsha/ksjdhfa).
+  Confirm the repository is public before submitting.
+
+## What the application does
+
+- Shows Elexon national wind-generation actuals and eligible day-ahead
+  forecasts for a selected January 2026 delivery day.
+- Lets the user choose a previous-day UTC decision cutoff.
+- Reports MAE, RMSE, signed forecast bias, and actual/forecast interval
+  coverage.
+- Distinguishes missing actuals, missing eligible forecasts, partial coverage,
+  and complete coverage.
+- Compares forecast and actual generation in a half-hourly chart, with a
+  historical January forecast-error range and overforecast summary.
+- Provides a daily accuracy table and exports the selected day's intervals to
+  CSV.
+
+This is a wind-only decision-support view. It does not include demand,
+generation from other sources, wholesale prices, or a recommended procurement
+quantity.
+
+## Data and analysis
+
+The backend retrieves:
+
+- Actual wind generation from Elexon's [FUELHH dataset](https://bmrs.elexon.co.uk/api-documentation/endpoint/datasets/FUELHH/stream), filtered to `fuelType=WIND`.
+- Forecasts from Elexon's [WINDFOR dataset](https://bmrs.elexon.co.uk/api-documentation/endpoint/datasets/WINDFOR/stream).
+
+For each delivery half-hour, the backend selects the latest forecast issue
+published by the chosen cutoff on the previous UTC day that contains that
+delivery hour. Since WINDFOR is hourly and FUELHH is half-hourly, each hourly
+forecast is aligned to the two half-hours it covers. Metrics use only matched
+actual/forecast intervals; missing values are not treated as zero.
+
+The chart's P10–P90 error range and P90 overforecast statistic are calculated
+from matched January forecast-minus-actual errors for the selected cutoff.
+They are retrospective descriptive statistics for the observed sample, not
+calibrated probability guarantees or a forecast of future error. Times and
+cutoffs are UTC.
+
+Elexon limits dataset requests to seven days. The backend fetches January data
+in date chunks and caches the assembled records in memory for 15 minutes.
 
 ## Project structure
 
-- `frontend/` — Next.js App Router dashboard, interactive delivery-day and
-  cutoff selectors, forecast chart, accuracy table, and CSV export.
-- `frontend/app/page.tsx` — Dashboard UI, Tailwind utility styling, and
-  client-side API integration.
-- `frontend/app/globals.css` — Tailwind CSS entry point.
-- `backend/app/main.py` — FastAPI endpoints, Elexon retrieval, forecast-vintage
-  selection, interval alignment, and accuracy calculations.
-- `backend/tests/test_analysis.py` — Focused tests for forecast vintage
-  selection and scoring.
-- `backend/requirements.txt` — Python runtime dependencies.
-- `render.yaml` — Render backend service blueprint.
-- `frontend/vercel.json` — Vercel frontend build configuration.
+- `frontend/` — Next.js App Router application, configured for Vercel.
+- `frontend/app/page.tsx` — Dashboard UI, Tailwind styling, chart, filters,
+  coverage indicators, and CSV export.
+- `frontend/app/globals.css` — Tailwind CSS import and Spotlight animation.
+- `frontend/app/layout.tsx` — App metadata and root layout.
+- `frontend/app/icon.svg` — Meridian browser-tab icon.
+- `frontend/vercel.json` — Vercel build configuration.
+- `backend/app/main.py` — FastAPI API, Elexon data retrieval, forecast
+  eligibility, interval matching, and error calculations.
+- `backend/tests/test_analysis.py` — Tests for cutoff eligibility, hourly to
+  half-hourly alignment, coverage states, and error metrics.
+- `backend/requirements.txt` — Python backend dependencies.
+- `render.yaml` — Render web service blueprint and production CORS origin.
 
-## Run locally
+## Frameworks and tools
 
-Docker is intentionally not used.
+### Frontend
+
+- **Next.js 16** with the **App Router**, built on **React 19**.
+- **TypeScript** for the application code.
+- **Tailwind CSS 4** for utility-first styling.
+- **CSS animations** for the Spotlight effect in the hero. The effect is
+  Aceternity UI-inspired, implemented with CSS in this project; the
+  `aceternity-ui` package is not installed.
+- **ESLint** with the Next.js configuration for linting.
 
 ### Backend
 
-From the repository root, create and activate a Python virtual environment,
-then install and run the API:
+- **Python** and **FastAPI** for the HTTP API.
+- **HTTPX** for asynchronous requests to Elexon's public API.
+- **Uvicorn** as the ASGI development and production server.
+- **Python `unittest`** for backend tests.
+
+### Deployment and data
+
+- **Vercel** hosts the Next.js frontend.
+- **Render** hosts the FastAPI backend.
+- **Elexon BMRS API** provides the wind actual and forecast datasets.
+- **Git and GitHub** are used for version control and source hosting.
+
+## Run locally
+
+Docker is not required.
+
+### Backend
+
+From the repository root, create and activate a virtual environment, then
+install dependencies and start the API:
 
 ```powershell
 cd backend
@@ -36,8 +114,8 @@ python -m pip install -r requirements.txt
 uvicorn app.main:app --reload
 ```
 
-The API runs at `http://localhost:8000`. Visit
-`http://localhost:8000/docs` for the interactive API documentation.
+The API is available at `http://localhost:8000`; interactive documentation is
+at `http://localhost:8000/docs`.
 
 ### Frontend
 
@@ -49,15 +127,17 @@ npm ci
 npm run dev
 ```
 
-Open `http://localhost:3000`. The local frontend defaults to the API at
-`http://localhost:8000`; to use another API, set `NEXT_PUBLIC_API_URL` in
-`frontend/.env.local` and restart Next.js:
+Open `http://localhost:3000`. Locally, the frontend defaults to the backend at
+`http://localhost:8000`. To use a different API URL, create
+`frontend/.env.local`:
 
 ```dotenv
 NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
 
-## Tests and checks
+Restart the frontend after changing the environment variable.
+
+## Tests
 
 ```powershell
 cd backend
@@ -69,65 +149,29 @@ npm run build
 
 ## Deployment
 
-### Render API
-
-Create a Render **Blueprint** from this repository and select `render.yaml`, or
-create a Python web service with:
-
-- Root directory: `backend`
-- Build command: `pip install -r requirements.txt`
-- Start command: `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-- Health check path: `/health`
-- Environment variable: `CORS_ORIGINS=https://<your-vercel-domain>`
-
-The API's base URL is the Render service URL. The dashboard endpoint is
-`/api/dashboard`.
-
 ### Vercel frontend
 
-Import the repository into Vercel and set the project root directory to
-`frontend`. Add this environment variable, using the deployed Render service
-URL:
+The frontend is deployed at [https://ksjdhfa.vercel.app](https://ksjdhfa.vercel.app).
+In Vercel project settings, set the environment variable `NEXT_PUBLIC_API_URL`
+to the Render backend's public base URL (for example,
+`https://your-service.onrender.com`, with no trailing slash), then redeploy the
+frontend.
 
-```dotenv
-NEXT_PUBLIC_API_URL=https://<your-render-service>.onrender.com
-```
+### Render backend
 
-After deploying, replace `<your-vercel-domain>` in the Render `CORS_ORIGINS`
-value with the production Vercel domain (and redeploy the backend). The Vercel
-deployment URL: **not deployed yet**.
+Create a Render Blueprint from this repository and use `render.yaml`. The
+blueprint configures the backend root directory, Python build command, Uvicorn
+start command, `/health` health check, and CORS for `https://ksjdhfa.vercel.app`.
+After deployment, verify that `<render-service-url>/health` returns a healthy
+status and put the actual Render service URL above and in Vercel's
+`NEXT_PUBLIC_API_URL`.
 
-## Data and analysis
-
-The backend fetches January 2026 actual national wind generation from Elexon
-BMRS `FUELHH` (`fuelType=WIND`) and forecasts from `WINDFOR`. Elexon limits
-requests to seven days, so the backend requests non-overlapping chunks and
-caches the assembled source data for 15 minutes.
-
-For each delivery half-hour and selected decision cutoff, the backend chooses
-the latest `WINDFOR` issue published on the previous UTC day at or before the
-cutoff that contains that delivery hour. Elexon `WINDFOR` values are hourly and
-`FUELHH` values are half-hourly, so each eligible hourly forecast is aligned to
-both half-hour periods it covers. MAE, RMSE, and signed bias are calculated
-only for matched periods. Coverage distinguishes missing actuals, missing
-eligible forecasts, partial records, and complete days.
-
-The chart's shaded range uses the January P10–P90 distribution of
-forecast-minus-actual errors for the selected cutoff, translated to an
-illustrative actual-generation range. The overforecast summary reports the
-90th percentile of `max(forecast - actual, 0)` across matched January
-half-hours. Both are retrospective descriptive statistics for the displayed
-sample, not calibrated probability guarantees or a forecast of future error.
-
-This pilot covers wind generation only. It does not model demand, other
-generation, wholesale prices, or a recommended procurement quantity. Times
-and forecast cutoffs are UTC.
+No API key is required for the Elexon public dataset endpoints. `NEXT_PUBLIC_API_URL`
+is an API base URL, not a secret.
 
 ## AI tools
 
-AI tools were used to assist with implementation and documentation.
-
-## Challenge deliverables
-
-The Vercel application URL and unlisted video demo have not been created yet.
-Add both links here before submitting the challenge.
+- GitHub Copilot
+- v0
+- ChatGPT
+- Claude
