@@ -72,12 +72,20 @@ function formatShortDate(value: string | null) {
 }
 
 function formatDay(value: string) {
-  return new Intl.DateTimeFormat("en-GB", {
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-  }).format(new Date(`${value}T12:00:00Z`));
+  const [year, month, day] = value.split("-").map(Number);
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+
+  const weekdays = [
+    "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"
+  ];
+
+  const months = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+  ];
+
+  return `${weekdays[date.getUTCDay()]} ${day} ${months[month - 1]}`;
 }
 
 function makeMonthDays() {
