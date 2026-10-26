@@ -99,7 +99,21 @@ in date chunks and caches the assembled records in memory for 15 minutes.
 
 ## Run locally
 
-Docker is not required.
+Docker is optional. The manual setup below works without it.
+
+### With Docker Compose
+
+From the repository root, start both development services:
+
+```powershell
+docker compose up --build
+```
+
+Open `http://localhost:3000`; the API is available at `http://localhost:8000`.
+Stop the services with `Ctrl+C`, then run `docker compose down`.
+
+This Compose setup is for local development only. It does not change the
+Vercel or Render deployment configuration.
 
 ### Backend
 
