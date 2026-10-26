@@ -8,4 +8,4 @@ services:
     healthCheckPath: /health
     envVars:
       - key: CORS_ORIGINS
-        value: "*"
+        value: "https://ksjdhfa.vercel.app"
