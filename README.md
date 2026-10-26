@@ -104,14 +104,20 @@ BMRS `FUELHH` (`fuelType=WIND`) and forecasts from `WINDFOR`. Elexon limits
 requests to seven days, so the backend requests non-overlapping chunks and
 caches the assembled source data for 15 minutes.
 
-For a delivery day and decision cutoff, the forecast vintage is the latest
-`publishTime` at or before that cutoff on the previous UTC day that covers at
-least 90% of the day's actual settlement periods. If no vintage meets that
-coverage threshold, the best-covered available vintage is selected. Elexon
-`WINDFOR` values are hourly and `FUELHH` values are half-hourly, so each hourly
-forecast is aligned to both half-hour periods it covers. MAE, RMSE, and signed
-bias are calculated only for matched periods. Coverage is shown explicitly;
-missing data is not treated as zero.
+For each delivery half-hour and selected decision cutoff, the backend chooses
+the latest `WINDFOR` issue published on the previous UTC day at or before the
+cutoff that contains that delivery hour. Elexon `WINDFOR` values are hourly and
+`FUELHH` values are half-hourly, so each eligible hourly forecast is aligned to
+both half-hour periods it covers. MAE, RMSE, and signed bias are calculated
+only for matched periods. Coverage distinguishes missing actuals, missing
+eligible forecasts, partial records, and complete days.
+
+The chart's shaded range uses the January P10–P90 distribution of
+forecast-minus-actual errors for the selected cutoff, translated to an
+illustrative actual-generation range. The overforecast summary reports the
+90th percentile of `max(forecast - actual, 0)` across matched January
+half-hours. Both are retrospective descriptive statistics for the displayed
+sample, not calibrated probability guarantees or a forecast of future error.
 
 This pilot covers wind generation only. It does not model demand, other
 generation, wholesale prices, or a recommended procurement quantity. Times

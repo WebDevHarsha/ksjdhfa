@@ -6,8 +6,11 @@ type Interval = {
   start_time: string;
   actual_mw: number | null;
   forecast_mw: number | null;
+  forecast_publish_time: string | null;
   error_mw: number | null;
 };
+
+type CoverageStatus = "no_actuals" | "no_forecast" | "partial" | "complete";
 
 type DailyResult = {
   date: string;
@@ -17,6 +20,8 @@ type DailyResult = {
   interval_coverage: number;
   actual_intervals: number;
   forecast_intervals: number;
+  expected_intervals: number;
+  coverage_status: CoverageStatus;
   forecast_publish_time: string | null;
 };
 
@@ -32,8 +37,14 @@ type Dashboard = {
   interval_coverage: number;
   actual_intervals: number;
   forecast_intervals: number;
+  expected_intervals: number;
+  coverage_status: CoverageStatus;
   actual_average_mw: number | null;
   forecast_average_mw: number | null;
+  historical_error_p10_mw: number | null;
+  historical_error_p90_mw: number | null;
+  historical_overforecast_p90_mw: number | null;
+  historical_error_intervals: number;
   daily: DailyResult[];
   intervals: Interval[];
   source: string;
@@ -58,6 +69,7 @@ const ui = {
   "chart-grid": "stroke-[#edf0ed] [stroke-width:1]",
   "chart-axis": "fill-[#87918c] font-sans [font-size:10px]",
   "chart-area": "fill-[#dfeae2] opacity-60",
+  "chart-risk-band": "fill-[#a5d9ad] opacity-25",
   "chart-line": "fill-none stroke-linecap-round stroke-linejoin-round [stroke-width:2.15] [vector-effect:non-scaling-stroke]",
   "chart-line-forecast": "stroke-[#99a99e] [stroke-dasharray:4_4] [stroke-width:1.8]",
   "chart-line-actual": "stroke-[#256b53]",
@@ -140,6 +152,7 @@ const ui = {
   "legend-line": "relative inline-block h-0.5 w-[15px] bg-[#256b53]",
   "legend-actual-dot": "after:absolute after:left-[6px] after:top-[-2px] after:h-[5px] after:w-[5px] after:rounded-full after:bg-[#256b53] after:content-['']",
   "legend-forecast": "bg-[#8aa292] [background-image:linear-gradient(90deg,white_50%,transparent_50%)] [background-size:6px_1px] [background-repeat:repeat-x]",
+  "legend-risk-band": "inline-block h-[9px] w-[14px] rounded-sm border border-[#9fc9a6] bg-[#a5d9ad]/40",
   "chart-skeleton": "mt-3 min-h-[225px] animate-pulse rounded-md bg-gradient-to-r from-[#f0f4ee] via-[#f9faf8] to-[#f0f4ee]",
   "chart-footer": "flex justify-between pl-[61px] pt-[3px] text-[9px] text-[#9aa39e] max-[500px]:pl-[38px] max-[500px]:text-[8px]",
   "detail-grid": "mb-[15px] grid grid-cols-[minmax(0,1.5fr)_minmax(230px,.9fr)] gap-[14px] max-md:grid-cols-1",
@@ -178,6 +191,12 @@ const ui = {
   "coverage-cell": "inline-flex min-w-[70px] items-center gap-2",
   "coverage-track": "inline-block h-1 w-[34px] overflow-hidden rounded bg-[#e8ece8]",
   "coverage-fill": "block h-full rounded bg-[#5e9271]",
+  "coverage-status": "text-[9px] text-[#84908a]",
+  "risk-note": "mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-[#eadfc4] bg-[#fbf8ef] px-3.5 py-3",
+  "risk-copy": "grid gap-1",
+  "risk-title": "text-[9px] font-bold tracking-[0.08em] text-[#826b37]",
+  "risk-detail": "text-[11px] leading-relaxed text-[#635b48]",
+  "risk-sample": "shrink-0 text-[9px] text-[#857b64]",
   "row-action": "grid h-6 w-6 cursor-pointer place-items-center rounded border-0 bg-transparent text-[#84918a] hover:bg-[#e8f0e9] hover:text-[#256b53]",
   "loading-cell": "h-9 border-t border-[#f0f2ef] px-4 text-[10px] text-[#9aa39e]",
   "table-empty": "p-6 text-center text-xs text-[#7e8983]",
@@ -234,6 +253,19 @@ function formatDay(value: string) {
   ];
 
   return `${weekdays[date.getUTCDay()]} ${day} ${months[month - 1]}`;
+}
+
+function coverageStatusLabel(status: CoverageStatus) {
+  switch (status) {
+    case "no_actuals":
+      return "No actual data";
+    case "no_forecast":
+      return "No eligible forecast";
+    case "partial":
+      return "Partial coverage";
+    case "complete":
+      return "Complete";
+  }
 }
 
 function makeMonthDays() {
@@ -325,7 +357,15 @@ function Spotlight({ fill = "#b7f4c8" }: { fill?: string }) {
   );
 }
 
-function ForecastChart({ intervals }: { intervals: Interval[] }) {
+function ForecastChart({
+  intervals,
+  errorP10,
+  errorP90,
+}: {
+  intervals: Interval[];
+  errorP10: number | null;
+  errorP90: number | null;
+}) {
   const chart = useMemo(() => {
     const valid = intervals.filter(
       (point) => point.actual_mw !== null && point.forecast_mw !== null,
@@ -354,6 +394,25 @@ function ForecastChart({ intervals }: { intervals: Interval[] }) {
           return `${command}${x(index).toFixed(1)},${y(point[key]!).toFixed(1)}`;
         })
         .join(" ");
+    const bandPath =
+      errorP10 === null || errorP90 === null
+        ? null
+        : [
+            ...valid.map((point, index) => {
+              const command = index === 0 ? "M" : "L";
+              return `${command}${x(index).toFixed(1)},${y(Math.max(0, point.forecast_mw! - errorP10)).toFixed(1)}`;
+            }),
+            ...valid
+              .slice()
+              .reverse()
+              .map((point, index) => {
+                const forecast = point.forecast_mw!;
+                const lowerValue = Math.max(0, forecast - errorP90);
+                const reverseIndex = valid.length - index - 1;
+                return `L${x(reverseIndex).toFixed(1)},${y(lowerValue).toFixed(1)}`;
+              }),
+            "Z",
+          ].join(" ");
 
     return {
       width,
@@ -370,8 +429,9 @@ function ForecastChart({ intervals }: { intervals: Interval[] }) {
       y,
       actualPath: path("actual_mw"),
       forecastPath: path("forecast_mw"),
+      bandPath,
     };
-  }, [intervals]);
+  }, [errorP10, errorP90, intervals]);
 
   if (!chart) {
     return (
@@ -397,7 +457,7 @@ function ForecastChart({ intervals }: { intervals: Interval[] }) {
       className={ui["forecast-chart"]}
       viewBox={`0 0 ${chart.width} ${chart.height}`}
       role="img"
-      aria-label="Actual and day-ahead forecast wind generation in megawatts"
+      aria-label="Actual, day-ahead forecast, and historical forecast-error range in megawatts"
     >
       {gridValues.map((value, index) => {
         const y =
@@ -431,10 +491,9 @@ function ForecastChart({ intervals }: { intervals: Interval[] }) {
           </text>
         );
       })}
-      <path
-        d={`${chart.forecastPath} L${chart.width - chart.right},${chart.height - chart.bottom} L${chart.left},${chart.height - chart.bottom} Z`}
-        className={ui["chart-area"]}
-      />
+      {chart.bandPath && (
+        <path d={chart.bandPath} className={ui["chart-risk-band"]} />
+      )}
       <path
         d={chart.forecastPath}
         className={`${ui["chart-line"]} ${ui["chart-line-forecast"]}`}
@@ -457,7 +516,8 @@ function ForecastChart({ intervals }: { intervals: Interval[] }) {
               minute: "2-digit",
               timeZone: "UTC",
             }).format(new Date(point.start_time))}: actual{" "}
-            {formatMw(point.actual_mw)}; forecast {formatMw(point.forecast_mw)}
+            {formatMw(point.actual_mw)}; forecast {formatMw(point.forecast_mw)};
+            eligible issue {formatShortDate(point.forecast_publish_time)}
           </title>
         </circle>
       ))}
@@ -515,11 +575,18 @@ export default function Home() {
   function exportCsv() {
     if (!dashboard) return;
     const rows = [
-      ["start_time_utc", "actual_wind_mw", "forecast_wind_mw", "error_mw"],
+      [
+        "start_time_utc",
+        "actual_wind_mw",
+        "forecast_wind_mw",
+        "forecast_publish_time_utc",
+        "error_mw",
+      ],
       ...dashboard.intervals.map((row) => [
         row.start_time,
         row.actual_mw ?? "",
         row.forecast_mw ?? "",
+        row.forecast_publish_time ?? "",
         row.error_mw ?? "",
       ]),
     ];
@@ -533,7 +600,8 @@ export default function Home() {
 
   const currentDay = dashboard?.daily.find((day) => day.date === selectedDate);
   const forecastCount = dashboard?.forecast_intervals ?? 0;
-  const totalIntervals = dashboard?.actual_intervals ?? 48;
+  const actualCount = dashboard?.actual_intervals ?? 0;
+  const totalIntervals = dashboard?.expected_intervals ?? 48;
 
   return (
     <main className={ui["app-shell"]}>
@@ -710,7 +778,11 @@ export default function Home() {
                 {loading || !dashboard ? "—" : `${Math.round(dashboard.interval_coverage * 100)}%`}
               </div>
               <div className={ui["metric-foot"]}>
-                {loading ? "Loading source data" : `${forecastCount} of ${totalIntervals} half-hours matched`}
+                {loading
+                  ? "Checking actual and forecast data"
+                  : dashboard
+                    ? `${coverageStatusLabel(dashboard.coverage_status)} · ${forecastCount}/${totalIntervals} matched, ${actualCount} actuals`
+                    : "Coverage unavailable"}
               </div>
             </article>
           </section>
@@ -725,18 +797,40 @@ export default function Home() {
               <div className={ui["chart-legend"]} aria-label="Chart legend">
                 <span className={ui["legend-item"]}><i className={`${ui["legend-line"]} ${ui["legend-actual-dot"]}`} />Actual</span>
                 <span className={ui["legend-item"]}><i className={`${ui["legend-line"]} ${ui["legend-forecast"]}`} />Day-ahead forecast</span>
+                <span className={ui["legend-item"]}><i className={ui["legend-risk-band"]} />January historical 10–90% range</span>
               </div>
             </div>
             {loading ? (
               <div className={ui["chart-skeleton"]} aria-label="Loading chart" />
             ) : dashboard ? (
-              <ForecastChart intervals={dashboard.intervals} />
+              <ForecastChart
+                intervals={dashboard.intervals}
+                errorP10={dashboard.historical_error_p10_mw}
+                errorP90={dashboard.historical_error_p90_mw}
+              />
             ) : (
               <div className={ui["chart-empty"]}>Connect to the API to view the delivery profile.</div>
             )}
             <div className={ui["chart-footer"]}>
               <span>Generation (MW)</span>
               <span>Delivery time, 00:00–24:00 UTC</span>
+            </div>
+            <div className={ui["risk-note"]}>
+              <div className={ui["risk-copy"]}>
+                <span className={ui["risk-title"]}>JANUARY HISTORICAL OVERFORECAST EXPOSURE · P90</span>
+                <span className={ui["risk-detail"]}>
+                  {dashboard?.historical_overforecast_p90_mw === null ||
+                  dashboard?.historical_overforecast_p90_mw === undefined
+                    ? "Not enough matched records to estimate historical overforecast error."
+                    : `Across the matched January sample, forecast overstatement was at or below ${formatMw(dashboard.historical_overforecast_p90_mw)} at the 90th percentile.`}
+                </span>
+                <span className={ui["risk-sample"]}>
+                  Shaded band translates January signed-error P10–P90 to an illustrative actual-generation range. Historical sample only; not a probability guarantee.
+                </span>
+              </div>
+              <span className={ui["risk-sample"]}>
+                n = {dashboard?.historical_error_intervals ?? 0} matched half-hours
+              </span>
             </div>
           </section>
 
@@ -751,7 +845,7 @@ export default function Home() {
               </div>
               <div className={ui["vintage-body"]}>
                 <div className={ui["vintage-date"]}>
-                  <span className={ui["muted-label"]}>Latest issue before cutoff</span>
+                  <span className={ui["muted-label"]}>Latest selected issue</span>
                   <strong className={ui["vintage-date-value"]}>{loading ? "Loading…" : formatShortDate(dashboard?.forecast_publish_time ?? null)}</strong>
                 </div>
                 <div className={ui["vintage-stats"]}>
@@ -778,7 +872,7 @@ export default function Home() {
                 </div>
               </div>
               <div className={ui["vintage-note"]}>
-                The selected vintage is the latest issue available at the chosen previous-day cutoff.
+                Each delivery half-hour uses its own latest eligible hourly forecast issue published by {decisionTime} UTC on the previous day.
               </div>
             </section>
 
@@ -811,7 +905,7 @@ export default function Home() {
                     <th className={ui["table-head"]} scope="col">MAE</th>
                     <th className={ui["table-head"]} scope="col">RMSE</th>
                     <th className={ui["table-head"]} scope="col">Bias</th>
-                    <th className={ui["table-head"]} scope="col">Coverage</th>
+                    <th className={ui["table-head"]} scope="col">Coverage status</th>
                     <th className={ui["table-head"]} scope="col" aria-label="Open delivery day" />
                   </tr>
                 </thead>
@@ -846,11 +940,15 @@ export default function Home() {
                             {formatMw(day.bias_mw)}
                           </td>
                           <td className={ui["table-cell"]}>
-                            <span className={ui["coverage-cell"]}>
+                            <span
+                              className={ui["coverage-cell"]}
+                              title={`${coverageStatusLabel(day.coverage_status)}: ${day.forecast_intervals} of ${day.expected_intervals} intervals matched; ${day.actual_intervals} actuals available`}
+                            >
                               <span className={ui["coverage-track"]}>
                                 <span className={ui["coverage-fill"]} style={{ width: `${Math.round(day.interval_coverage * 100)}%` }} />
                               </span>
                               {Math.round(day.interval_coverage * 100)}%
+                              <span className={ui["coverage-status"]}>{coverageStatusLabel(day.coverage_status)}</span>
                             </span>
                           </td>
                           <td className={ui["table-cell"]}>

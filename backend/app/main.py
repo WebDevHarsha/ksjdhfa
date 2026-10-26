@@ -4,7 +4,6 @@ import asyncio
 import math
 import os
 import time
-from collections import defaultdict
 from datetime import date, datetime, time as day_time, timedelta, timezone
 from typing import Any
 
@@ -203,7 +202,7 @@ def _forecast_for_day(
     actuals: dict[datetime, float],
     delivery_day: date,
     decision_time: str,
-) -> tuple[datetime | None, dict[datetime, float]]:
+) -> tuple[dict[datetime, float], dict[datetime, datetime]]:
     previous_day = delivery_day - timedelta(days=1)
     cutoff_hour, cutoff_minute = (int(part) for part in decision_time.split(":"))
     cutoff = datetime.combine(
@@ -211,7 +210,7 @@ def _forecast_for_day(
         day_time(cutoff_hour, cutoff_minute),
         tzinfo=timezone.utc,
     )
-    snapshots: dict[datetime, dict[datetime, float]] = defaultdict(dict)
+    latest_by_interval: dict[datetime, tuple[datetime, float]] = {}
     for row in rows:
         publish_time = _parse_datetime(row.get("publishTime"))
         start_time = _parse_datetime(row.get("startTime"))
@@ -223,64 +222,56 @@ def _forecast_for_day(
             or publish_time > cutoff
         ):
             continue
-        snapshots[publish_time][start_time] = generation
+        if start_time.minute != 0 or start_time.second != 0:
+            continue
+        forecast_hour = _floor_to_hour(start_time)
+        for actual_time in (forecast_hour, forecast_hour + timedelta(minutes=30)):
+            if actual_time not in actuals:
+                continue
+            existing = latest_by_interval.get(actual_time)
+            if existing is None or publish_time > existing[0]:
+                latest_by_interval[actual_time] = (publish_time, generation)
 
-    if not actuals or not snapshots:
-        return None, {}
-
-    candidates: list[tuple[datetime, int, dict[datetime, float]]] = []
-    for publish_time, values in snapshots.items():
-        matched = sum(
-            1
-            for actual_time in actuals
-            if actual_time in values or _floor_to_hour(actual_time) in values
-        )
-        if matched:
-            candidates.append((publish_time, matched, values))
-    if not candidates:
-        return None, {}
-
-    minimum_complete_coverage = max(1, math.ceil(len(actuals) * 0.9))
-    sufficiently_complete = [
-        candidate
-        for candidate in candidates
-        if candidate[1] >= minimum_complete_coverage
-    ]
-    if sufficiently_complete:
-        publish_time, _, vintage = max(sufficiently_complete, key=lambda item: item[0])
-    else:
-        publish_time, _, vintage = max(
-            candidates, key=lambda item: (item[1], item[0])
-        )
-
-    aligned = {
-        actual_time: vintage.get(actual_time, vintage.get(_floor_to_hour(actual_time)))
-        for actual_time in actuals
+    forecasts = {
+        interval: generation
+        for interval, (_, generation) in latest_by_interval.items()
     }
-    return publish_time, {
-        actual_time: generation
-        for actual_time, generation in aligned.items()
-        if generation is not None
+    publish_times = {
+        interval: publish_time
+        for interval, (publish_time, _) in latest_by_interval.items()
     }
+    return forecasts, publish_times
 
 
 def _score_day(
     actuals: dict[datetime, float], forecasts: dict[datetime, float]
-) -> dict[str, float | int | None]:
+) -> dict[str, float | int | str | None]:
     errors = [
         forecasts[instant] - actual
         for instant, actual in actuals.items()
         if instant in forecasts
     ]
     count = len(errors)
+    actual_count = len(actuals)
+    coverage_status = (
+        "no_actuals"
+        if actual_count == 0
+        else "no_forecast"
+        if count == 0
+        else "complete"
+        if actual_count == 48 and count == 48
+        else "partial"
+    )
     if not count:
         return {
             "mae_mw": None,
             "rmse_mw": None,
             "bias_mw": None,
             "interval_coverage": 0.0,
-            "actual_intervals": len(actuals),
+            "expected_intervals": 48,
+            "actual_intervals": actual_count,
             "forecast_intervals": 0,
+            "coverage_status": coverage_status,
             "actual_average_mw": None,
             "forecast_average_mw": None,
         }
@@ -289,9 +280,11 @@ def _score_day(
         "mae_mw": round(sum(abs(error) for error in errors) / count, 1),
         "rmse_mw": round((sum(error * error for error in errors) / count) ** 0.5, 1),
         "bias_mw": round(sum(errors) / count, 1),
-        "interval_coverage": round(count / len(actuals), 4) if actuals else 0.0,
-        "actual_intervals": len(actuals),
+        "interval_coverage": round(count / 48, 4),
+        "expected_intervals": 48,
+        "actual_intervals": actual_count,
         "forecast_intervals": count,
+        "coverage_status": coverage_status,
         "actual_average_mw": round(
             sum(actuals[instant] for instant in actuals if instant in forecasts) / count,
             1,
@@ -309,7 +302,7 @@ def _daily_result(
     decision_time: str
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     actuals = _actuals_by_time(rows, delivery_day)
-    publish_time, forecasts = _forecast_for_day(
+    forecasts, publish_times = _forecast_for_day(
         forecast_rows, actuals, delivery_day, decision_time
     )
     score = _score_day(actuals, forecasts)
@@ -320,6 +313,9 @@ def _daily_result(
             "forecast_mw": (
                 round(forecasts[instant], 1) if instant in forecasts else None
             ),
+            "forecast_publish_time": (
+                _iso_utc(publish_times[instant]) if instant in publish_times else None
+            ),
             "error_mw": (
                 round(forecasts[instant] - actual, 1)
                 if instant in forecasts
@@ -328,6 +324,7 @@ def _daily_result(
         }
         for instant, actual in sorted(actuals.items())
     ]
+    publish_time = max(publish_times.values(), default=None)
     lead_hours = (
         (datetime.combine(delivery_day, day_time.min, tzinfo=timezone.utc) - publish_time)
         .total_seconds()
@@ -342,6 +339,19 @@ def _daily_result(
         "forecast_lead_hours": round(lead_hours, 2) if lead_hours is not None else None,
     }
     return result, interval_rows
+
+
+def _percentile(values: list[float], percentile: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    position = (len(ordered) - 1) * percentile
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return ordered[lower]
+    weight = position - lower
+    return ordered[lower] * (1 - weight) + ordered[upper] * weight
 
 
 @app.get("/health")
@@ -364,6 +374,7 @@ async def dashboard(
     actual_rows, forecast_rows = await _load_source_data()
     daily: list[dict[str, Any]] = []
     selected_intervals: list[dict[str, Any]] = []
+    month_errors: list[float] = []
     selected_summary: dict[str, Any] | None = None
     for day_number in range(1, 32):
         delivery_day = date(2026, 1, day_number)
@@ -371,6 +382,11 @@ async def dashboard(
             actual_rows, forecast_rows, delivery_day, decision_time
         )
         daily.append(day_summary)
+        month_errors.extend(
+            interval["error_mw"]
+            for interval in intervals
+            if interval["error_mw"] is not None
+        )
         if delivery_day == selected_day:
             selected_summary = day_summary
             selected_intervals = intervals
@@ -378,11 +394,26 @@ async def dashboard(
     if selected_summary is None:
         raise HTTPException(status_code=500, detail="Could not calculate selected delivery day")
 
+    error_p10 = _percentile(month_errors, 0.1)
+    error_p90 = _percentile(month_errors, 0.9)
+    overforecast_p90 = _percentile(
+        [max(error, 0.0) for error in month_errors], 0.9
+    )
     return {
         "month": "2026-01",
         "date": selected_day.isoformat(),
         "decision_time": decision_time,
         **selected_summary,
+        "historical_error_p10_mw": (
+            round(error_p10, 1) if error_p10 is not None else None
+        ),
+        "historical_error_p90_mw": (
+            round(error_p90, 1) if error_p90 is not None else None
+        ),
+        "historical_overforecast_p90_mw": (
+            round(overforecast_p90, 1) if overforecast_p90 is not None else None
+        ),
+        "historical_error_intervals": len(month_errors),
         "daily": daily,
         "intervals": selected_intervals,
         "source": "Elexon BMRS",
