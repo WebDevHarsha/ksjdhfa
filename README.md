@@ -9,7 +9,7 @@ Full Stack SWE challenge.
 - **Deployed frontend:** [https://ksjdhfa.vercel.app](https://ksjdhfa.vercel.app)
 - **Backend API:** deploy the Render service from `render.yaml`, then add its
   public URL here.
-- **Demo video:** add the unlisted YouTube link here before submission. The
+- **Demo video:** [Watch the project demo](https://youtu.be/BpzNhKBpVO4). The
   challenge asks for a video of no more than 10 minutes, with a customer-facing
   product overview and a technical handover.
 - **Source repository:** [WebDevHarsha/ksjdhfa](https://github.com/WebDevHarsha/ksjdhfa).
